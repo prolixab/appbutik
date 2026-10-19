@@ -1,0 +1,6 @@
+# GitHub repos whose latest release APK should be in the store.
+# One per line: owner/repo [asset-pattern]   (pattern defaults to *.apk)
+# Private repos need a SOURCES_TOKEN secret (fine-grained PAT with Contents: read).
+#
+# prolixab/my-android-app
+# prolixab/other-app  *-release.apk

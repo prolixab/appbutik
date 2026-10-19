@@ -1,0 +1,12 @@
+# Optional store listing for one app. Copy to <applicationId>.yml (e.g. se.prolixity.glosor.yml).
+# Without a file, the store uses the name and icon from the APK itself.
+Categories:
+  - Education
+License: Proprietary
+AuthorName: Andrew Galbraith
+Name: Min app
+Summary: En kort rad som visas i listan
+Description: |-
+  Längre beskrivning som visas på appens sida i F-Droid.
+
+  Stycken separeras med tomrad.

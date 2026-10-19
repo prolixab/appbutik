@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__REPO_NAME__</title>
+<link rel="icon" href="icon.png">
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #1b1f24; --muted: #5b6470;
+    --accent: #0f766e; --accent-text: #ffffff; --border: #e2e5ea;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #111418; --card: #1a1f25; --text: #e8ebef; --muted: #9aa3ae;
+            --accent: #2dd4bf; --accent-text: #062a26; --border: #2a313a; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 32px 16px 64px; }
+  header { display: flex; gap: 16px; align-items: center; margin-bottom: 24px; }
+  header img { width: 64px; height: 64px; border-radius: 16px; }
+  h1 { margin: 0; font-size: 1.8rem; }
+  h2 { font-size: 1.15rem; margin: 0 0 12px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+          padding: 20px; margin-bottom: 20px; }
+  .add { display: grid; grid-template-columns: 1fr auto; gap: 20px; align-items: center; }
+  @media (max-width: 560px) { .add { grid-template-columns: 1fr; } }
+  ol { margin: 0; padding-left: 1.2em; }
+  li { margin-bottom: 6px; }
+  .btn { display: inline-block; background: var(--accent); color: var(--accent-text);
+         padding: 10px 16px; border-radius: 10px; text-decoration: none; font-weight: 600; margin-top: 8px; }
+  #qr { background: #fff; padding: 10px; border-radius: 10px; line-height: 0; justify-self: center; }
+  #qr img { width: 180px; height: 180px; image-rendering: pixelated; }
+  code { font-size: .8rem; word-break: break-all; color: var(--muted); }
+  .muted { color: var(--muted); }
+  .apps { display: grid; gap: 12px; }
+  .app { display: flex; gap: 14px; align-items: center; }
+  .app img { width: 48px; height: 48px; border-radius: 12px; flex: none; background: var(--border); }
+  .app div { min-width: 0; }
+  .app strong { display: block; }
+  .app span { color: var(--muted); font-size: .9rem; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <img src="icon.png" alt="">
+    <div>
+      <h1>__REPO_NAME__</h1>
+      <div class="muted">Egna Android-appar, med automatiska uppdateringar.</div>
+    </div>
+  </header>
+
+  <section class="card add">
+    <div>
+      <h2>Lägg till butiken på din telefon</h2>
+      <ol>
+        <li>Installera <a href="https://f-droid.org/F-Droid.apk">F-Droid</a> (eller Droid-ify).</li>
+        <li>Tryck på knappen nedan på telefonen – eller skanna QR-koden från F-Droid.</li>
+        <li>Godkänn att F-Droid får installera appar.</li>
+      </ol>
+      <a class="btn" id="add-link" href="#">Lägg till i F-Droid</a>
+      <p class="muted" style="margin:12px 0 0">Lägga till manuellt: Inställningar → Förråd → +<br>
+        <code id="repo-url"></code><br>Fingeravtryck: <code>__FINGERPRINT__</code></p>
+    </div>
+    <div id="qr" aria-label="QR-kod för butiken"></div>
+  </section>
+
+  <section class="card">
+    <h2>Appar</h2>
+    <div class="apps" id="apps"><span class="muted">Laddar…</span></div>
+  </section>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+<script>
+  const REPO_URL = '__REPO_URL__';
+  const FINGERPRINT = '__FINGERPRINT__';
+  const shareUrl = `${REPO_URL}?fingerprint=${FINGERPRINT.toUpperCase()}`;
+
+  document.getElementById('repo-url').textContent = REPO_URL;
+  document.getElementById('add-link').href = shareUrl.replace(/^https:/, 'fdroidrepos:');
+
+  try {
+    const qr = qrcode(0, 'M');
+    qr.addData(shareUrl);
+    qr.make();
+    document.getElementById('qr').innerHTML = qr.createImgTag(6, 0);
+  } catch (e) {
+    document.getElementById('qr').remove();
+  }
+
+  const pick = (app, field) => app[field] ?? Object.values(app.localized ?? {})[0]?.[field] ?? '';
+
+  fetch('repo/index-v1.json')
+    .then(r => r.json())
+    .then(index => {
+      const list = document.getElementById('apps');
+      const apps = index.apps ?? [];
+      if (!apps.length) { list.innerHTML = '<span class="muted">Inga appar publicerade än.</span>'; return; }
+      list.innerHTML = '';
+      for (const app of apps.sort((a, b) => pick(a, 'name').localeCompare(pick(b, 'name'), 'sv'))) {
+        const latest = (index.packages?.[app.packageName] ?? [])[0];
+        const row = document.createElement('div');
+        row.className = 'app';
+        const icon = app.icon ? `repo/icons-640/${app.icon}` : 'icon.png';
+        row.innerHTML = `<img alt="" src="${icon}" onerror="this.src='icon.png'"><div><strong></strong><span></span></div>`;
+        row.querySelector('strong').textContent = pick(app, 'name') || app.packageName;
+        row.querySelector('span').textContent =
+          [pick(app, 'summary'), latest && `v${latest.versionName}`].filter(Boolean).join(' · ');
+        list.append(row);
+      }
+    })
+    .catch(() => { document.getElementById('apps').innerHTML = '<span class="muted">Kunde inte läsa applistan.</span>'; });
+</script>
+</body>
+</html>

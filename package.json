@@ -1,0 +1,13 @@
+{
+  "name": "appbutik",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "keystore": "node tools/make-keystore.mjs ../appbutik-secrets",
+    "icon": "node tools/make-icon.mjs",
+    "preview": "node tools/preview.mjs"
+  },
+  "devDependencies": {
+    "node-forge": "1.3.1"
+  }
+}

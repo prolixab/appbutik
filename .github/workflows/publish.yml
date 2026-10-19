@@ -1,0 +1,72 @@
+name: Publish store
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  # App repos can trigger a rebuild right after a release:
+  #   gh api repos/OWNER/appbutik/dispatches -f event_type=app-released
+  repository_dispatch:
+    types: [app-released]
+  # Daily sweep picks up new releases from sources.txt anyway.
+  schedule:
+    - cron: '17 4 * * *'
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install fdroidserver
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends fdroidserver
+          fdroid --version
+
+      - name: Collect APKs
+        env:
+          GH_TOKEN: ${{ secrets.SOURCES_TOKEN || github.token }}
+        run: bash scripts/collect-apks.sh
+
+      # Keeps "added on" dates stable between builds.
+      - uses: actions/cache@v4
+        with:
+          path: fdroid/tmp
+          key: fdroid-tmp-${{ github.run_id }}
+          restore-keys: fdroid-tmp-
+
+      - name: Build and sign index
+        env:
+          REPO_URL: ${{ vars.REPO_URL || format('https://{0}.github.io/{1}/repo', github.repository_owner, github.event.repository.name) }}
+          REPO_NAME: ${{ vars.REPO_NAME || 'Appbutik' }}
+          FDROID_KEYSTORE_B64: ${{ secrets.FDROID_KEYSTORE_B64 }}
+          FDROID_KEYSTORE_PASS: ${{ secrets.FDROID_KEYSTORE_PASS }}
+          FDROID_KEY_ALIAS: ${{ secrets.FDROID_KEY_ALIAS || 'appbutik' }}
+        run: |
+          export REPO_URL=$(echo "$REPO_URL" | tr '[:upper:]' '[:lower:]')
+          bash scripts/build-repo.sh
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
