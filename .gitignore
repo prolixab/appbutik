@@ -9,3 +9,4 @@ fdroid/keystore*
 *.jks
 *.b64
 secrets.env
+fdroid/icon.png

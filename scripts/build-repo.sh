@@ -29,8 +29,8 @@ sdk_path: ${ANDROID_HOME:-/usr/lib/android-sdk}
 EOF
 umask 022
 
-mkdir -p repo/icons
-cp "$root/branding/icon.png" repo/icons/icon.png
+# fdroid resolves repo_icon relative to this dir and copies it into repo/icons itself.
+cp "$root/branding/icon.png" icon.png
 
 fdroid update --create-metadata --pretty
 

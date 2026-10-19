@@ -29,4 +29,5 @@ tmp=$(mktemp -d)
   done
 done
 
-echo "$(ls "$dest"/*.apk 2>/dev/null | wc -l) APK(s) collected"
+collected=("$dest"/*.apk)
+echo "${#collected[@]} APK(s) collected"
