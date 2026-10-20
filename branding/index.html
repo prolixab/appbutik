@@ -104,7 +104,10 @@
         const latest = (index.packages?.[app.packageName] ?? [])[0];
         const row = document.createElement('div');
         row.className = 'app';
-        const icon = app.icon ? `repo/icons-640/${app.icon}` : 'icon.png';
+        // Icon from the APK, else one supplied in fdroid/metadata/<package>/<locale>/icon.png
+        const localeIcon = Object.entries(app.localized ?? {}).find(([, l]) => l.icon);
+        const icon = app.icon ? `repo/icons-640/${app.icon}`
+          : localeIcon ? `repo/${app.packageName}/${localeIcon[0]}/${localeIcon[1].icon}` : 'icon.png';
         row.innerHTML = `<img alt="" src="${icon}" onerror="this.src='icon.png'"><div><strong></strong><span></span></div>`;
         row.querySelector('strong').textContent = pick(app, 'name') || app.packageName;
         row.querySelector('span').textContent =
