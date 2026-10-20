@@ -27,10 +27,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Ubuntu's packaged fdroidserver (2.2.1) bundles an androguard that crashes on
+      # resources.arsc from current AAPT2 builds ("res1 must be zero"), so use PyPI.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - name: Install fdroidserver
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends fdroidserver
+          pip install --quiet fdroidserver
           fdroid --version
 
       - name: Collect APKs

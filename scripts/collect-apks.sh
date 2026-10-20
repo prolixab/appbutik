@@ -24,8 +24,10 @@ tmp=$(mktemp -d)
   fi
   # Gradle names every APK app-release.apk, so prefix with the repo name to avoid collisions.
   for apk in "$dir"/*.apk; do
-    cp "$apk" "$dest/${repo##*/}-$(basename "$apk")"
-    echo "release: $repo -> ${repo##*/}-$(basename "$apk")"
+    name=$(basename "$apk")
+    [[ $name == "${repo##*/}"* ]] || name="${repo##*/}-$name"
+    cp "$apk" "$dest/$name"
+    echo "release: $repo -> $name"
   done
 done
 
