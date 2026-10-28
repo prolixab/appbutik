@@ -1,13 +1,24 @@
 # Appbutik
 
-A private app store for your own Android apps. It is an [F-Droid](https://f-droid.org) repository built by GitHub Actions and hosted on GitHub Pages. Phones add it once in the F-Droid client and then get your apps and their updates from it.
+A private app store for your own Android apps. It is an [F-Droid](https://f-droid.org) repository built by GitHub Actions and hosted on Coolify at `https://appstore.prolixab.se`. Phones add it once in the F-Droid client and then get your apps and their updates from it.
 
 ```
-apks/*.apk  ─┐
-sources.txt ─┴─► collect-apks.sh ─► fdroid update (signs index) ─► GitHub Pages
-                                                                   ├─ /          landing page + QR
-                                                                   └─ /repo      F-Droid repo
+apks/*.apk  ─┐                                                     ┌─► nginx image (ghcr.io) ─► Coolify
+sources.txt ─┴─► collect-apks.sh ─► fdroid update (signs index) ───┤
+                                                                   └─► GitHub Pages (old URL, during the move)
+site:  /          landing page + QR
+       /repo      F-Droid repo
 ```
+
+## Hosting on Coolify
+
+Each build pushes `ghcr.io/prolixab/appbutik:latest` and then calls Coolify's deploy webhook.
+
+- Coolify resource: **Docker Image** `ghcr.io/prolixab/appbutik:latest`, port 80, domain `https://appstore.prolixab.se`. The package must be public on GitHub, or Coolify needs registry credentials.
+- Actions secrets: `COOLIFY_WEBHOOK` (the resource's deploy webhook URL) and `COOLIFY_TOKEN` (an API token with deploy rights). Without them the image is pushed but not deployed.
+- Actions variable: `REPO_URL = https://appstore.prolixab.se/repo`.
+
+GitHub Pages still serves the same build at `https://prolixab.github.io/appbutik/` so phones that added the old URL keep getting updates. Once every phone has re-added the store from the new address, remove the Pages steps and the `deploy` job from the workflow.
 
 ## One-time setup
 
@@ -16,7 +27,7 @@ sources.txt ─┴─► collect-apks.sh ─► fdroid update (signs index) ─�
    **Back that folder up** (password manager or USB stick). If you lose the key, every phone has to remove the store and add it again.
 2. **GitHub:** `gh auth login`, then `bash scripts/setup-github.sh OWNER/appbutik`.
    This creates a public repo, stores the key as Actions secrets, turns on Pages and pushes.
-3. Open `https://OWNER.github.io/appbutik/` on the phone and tap **Lägg till i F-Droid**.
+3. Open `https://appstore.prolixab.se/` on the phone and tap **Lägg till i F-Droid**.
 
 ## Publishing an app
 
