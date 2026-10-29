@@ -40,6 +40,46 @@ You can either:
   ```
   Private app repos need a `SOURCES_TOKEN` secret (fine-grained PAT, Contents: read).
 
+## Releasing an app from its repository
+
+Apps don't need their own build-and-sign pipeline. `.github/workflows/android-app-release.yml` is a shared release workflow: it checks the version, builds, signs with the app's key, verifies the certificate, publishes a GitHub Release with the APK and `SHA256SUMS.txt`, and notifies this store. Each app repository calls it from a short workflow of its own, for example:
+
+```yaml
+name: Android release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish a release (tag v<version> on the default branch)
+        type: boolean
+        default: false
+permissions:
+  contents: write
+jobs:
+  release:
+    uses: prolixab/appbutik/.github/workflows/android-app-release.yml@main
+    with:
+      app-name: chessy
+      version-command: node -p "require('./package.json').version"
+      build-command: npm run android:sync && cd android && chmod +x gradlew && ./gradlew assembleRelease --no-daemon
+      apk-path: android/app/build/outputs/apk/release/app-release-unsigned.apk
+      java-version: '21'
+      publish: ${{ inputs.publish == true }}
+    secrets: inherit
+```
+
+Other inputs: `install-command` (default `npm ci`), `check-command` (tests, run before the build), `node-version` (22), `timeout-minutes` (90). The build sees `RELEASE_VERSION` and `VERSION_CODE` (the run number, always increasing) in its environment.
+
+**Adding an app:**
+
+1. Store its signing key in the app repo: `bash scripts/setup-app.sh OWNER/APP signing.properties` (or a `.jks` file, which prompts for the alias and passwords). Use the key the app has always been signed with.
+2. Add the caller workflow above to the app repo.
+3. Add `OWNER/APP` to `sources.txt`. For a private repo, also give `SOURCES_TOKEN` access to it.
+
+**Releasing:** bump the version, merge, then run **Actions → Android release** on the default branch with **publish** ticked. It refuses to publish a version that is already tagged. Pushing a `v<version>` tag works too; the tag must match the app version.
+
 ## Rules for the APKs
 
 - They must be **release-signed**. Debug APKs work but are fragile.

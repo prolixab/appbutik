@@ -1,0 +1,183 @@
+name: Android app release (shared)
+
+# Builds, signs and publishes an app's release APK. Called from each app repository's own
+# release workflow (see "Releasing an app from its repository" in the README), so every app
+# releases the same way and lands in this store.
+#
+# Releases happen on a pushed v<version> tag, or on a manual run with "publish" ticked. A manual
+# publish runs only on the app's default branch and creates the v<version> tag itself, in the same
+# run, because tags pushed with a workflow's own token do not start new workflow runs.
+on:
+  workflow_call:
+    inputs:
+      app-name:
+        description: Short name used for the APK file and the release title, e.g. chessy
+        type: string
+        required: true
+      version-command:
+        description: Prints the app version (major.minor.patch)
+        type: string
+        required: true
+      build-command:
+        description: Builds an unsigned (or debug-signed) release APK
+        type: string
+        required: true
+      apk-path:
+        description: Where build-command leaves the APK
+        type: string
+        required: true
+      install-command:
+        type: string
+        default: npm ci
+      check-command:
+        description: Optional checks (tests, lint) run before the build
+        type: string
+        default: ''
+      publish:
+        type: boolean
+        default: false
+      java-version:
+        type: string
+        default: '17'
+      node-version:
+        type: string
+        default: '22'
+      timeout-minutes:
+        type: number
+        default: 90
+    secrets:
+      ANDROID_KEYSTORE_BASE64:
+        required: true
+      ANDROID_KEYSTORE_PASSWORD:
+        required: true
+      ANDROID_KEY_ALIAS:
+        required: true
+      ANDROID_KEY_PASSWORD:
+        required: true
+      APPBUTIK_TOKEN:
+        required: false
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      contents: write
+    env:
+      CI: '1'
+      EXPO_NO_TELEMETRY: '1'
+      PUBLISH: ${{ startsWith(github.ref, 'refs/tags/') || inputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Decide the version and refuse a release that cannot succeed before spending time on the build.
+      - name: Check release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          VERSION_COMMAND: ${{ inputs.version-command }}
+        run: |
+          set -euo pipefail
+          version=$(bash -c "$VERSION_COMMAND" | tr -d '[:space:]')
+          [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Version '$version' is not major.minor.patch."; exit 1; }
+          tag="v$version"
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            [ "$GITHUB_REF_NAME" = "$tag" ] || { echo "::error::Tag $GITHUB_REF_NAME does not match the app version $version."; exit 1; }
+          elif [ "$PUBLISH" = true ]; then
+            [ "$GITHUB_REF" = "refs/heads/$DEFAULT_BRANCH" ] || { echo "::error::Publish only from $DEFAULT_BRANCH (this run is on $GITHUB_REF_NAME)."; exit 1; }
+            if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
+              echo "::error::$tag already exists. Bump the version before publishing."; exit 1
+            fi
+          fi
+          { echo "RELEASE_VERSION=$version"; echo "RELEASE_TAG=$tag"; echo "VERSION_CODE=$GITHUB_RUN_NUMBER"; } >> "$GITHUB_ENV"
+          echo "Releasing $version (tag $tag, publish=$PUBLISH)"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ inputs.java-version }}
+      - uses: android-actions/setup-android@v3
+        with:
+          # The legacy 'tools' package is no longer available from Google.
+          packages: 'platform-tools'
+
+      - name: Install dependencies
+        run: ${{ inputs.install-command }}
+
+      - name: Checks
+        if: inputs.check-command != ''
+        run: ${{ inputs.check-command }}
+
+      # RELEASE_VERSION and VERSION_CODE (the run number, always increasing) are available to the build.
+      - name: Build release APK
+        run: ${{ inputs.build-command }}
+
+      - name: Sign, verify and collect APK
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          APP_NAME: ${{ inputs.app-name }}
+          APK_PATH: ${{ inputs.apk-path }}
+        run: |
+          set -euo pipefail
+          keystore="$RUNNER_TEMP/release.jks"
+          (umask 077; printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$keystore")
+          apksigner=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n 1)
+          test -n "$apksigner"
+          mkdir -p release
+          signed="release/$APP_NAME-$RELEASE_VERSION.apk"
+          "$apksigner" sign --ks "$keystore" --ks-key-alias "$ANDROID_KEY_ALIAS" \
+            --ks-pass env:ANDROID_KEYSTORE_PASSWORD --key-pass env:ANDROID_KEY_PASSWORD \
+            --v4-signing-enabled false --out "$signed" "$APK_PATH"
+          "$apksigner" verify --verbose "$signed"
+          # The APK must carry exactly the certificate of the stored key, or phones refuse the update.
+          expected=$(keytool -exportcert -keystore "$keystore" -alias "$ANDROID_KEY_ALIAS" -storepass:env ANDROID_KEYSTORE_PASSWORD | sha256sum | cut -d' ' -f1)
+          actual=$("$apksigner" verify --print-certs "$signed" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | tr -d '[:space:]:' | tr 'A-F' 'a-f')
+          [ "$expected" = "$actual" ] || { echo "::error::APK certificate $actual does not match the release key $expected."; exit 1; }
+          [ "$("$apksigner" verify --print-certs "$signed" | grep -c '^Signer #')" = 1 ] || { echo "::error::Expected exactly one signer."; exit 1; }
+          (cd release && sha256sum *.apk > SHA256SUMS.txt)
+
+      - name: Upload downloadable build
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.app-name }}-android-${{ env.RELEASE_VERSION }}
+          path: release/*
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish GitHub Release
+        if: env.PUBLISH == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APP_NAME: ${{ inputs.app-name }}
+        run: |
+          set -euo pipefail
+          title="${APP_NAME^} $RELEASE_TAG"
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            gh release create "$RELEASE_TAG" release/* --verify-tag --title "$title" --generate-notes
+          else
+            # Creates the tag on the commit that was just built.
+            gh release create "$RELEASE_TAG" release/* --target "$GITHUB_SHA" --title "$title" --generate-notes
+          fi
+
+      # Tells this store to rebuild now instead of at its next daily run.
+      - name: Notify app store
+        if: env.PUBLISH == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.APPBUTIK_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::APPBUTIK_TOKEN not set; the store will pick up this release on its daily run"
+            exit 0
+          fi
+          gh api repos/prolixab/appbutik/dispatches -f event_type=app-released
+
+      - name: Remove signing key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release.jks"

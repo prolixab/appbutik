@@ -3,4 +3,5 @@
 # Private repos need a SOURCES_TOKEN secret (fine-grained PAT with Contents: read).
 #
 prolixab/forma
+prolixab/chessy
 # prolixab/other-app  *-release.apk
